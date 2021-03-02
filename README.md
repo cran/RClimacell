@@ -10,6 +10,8 @@ MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/
 [![GitHub
 commit](https://img.shields.io/github/last-commit/nikdata/RClimacell)](https://github.com/nikdata/RClimacell/commit/main)
 [![R-CMD-check](https://github.com/nikdata/RClimacell/workflows/R-CMD-check/badge.svg)](https://github.com/nikdata/RClimacell/actions)
+[![CRAN
+status](https://www.r-pkg.org/badges/version/RClimacell)](https://CRAN.R-project.org/package=RClimacell)
 <!-- badges: end -->
 
 The {RClimacell} package is an **unofficial** R package that enables
@@ -25,7 +27,27 @@ valid API key.
 More information about the Climacell API can be found on their
 [docs](https://docs.climacell.co/reference/api-overview) page.
 
+### Lubridate Issue
+
+As of 24 Feb, there is a [known
+issue](https://github.com/tidyverse/lubridate/issues/928) with using the
+package {lubridate} and it seems to be affecting macOS users. The ‘fix’
+has been to add the following line to the .Renviron file or the
+.Rprofile (I applied the code into the .Renviron file and it worked):
+
+``` r
+TZDIR="/Library/Frameworks/R.framework/Resources/share/zoneinfo/"
+```
+
+{lubridate} version 1.7.10 fixes this issue and is available on CRAN.
+
 ## Installation
+
+CRAN version can be installed as follows:
+
+``` r
+install.packages('RClimacell')
+```
 
 You can install the development version from
 [GitHub](https://github.com/) with:
@@ -45,15 +67,15 @@ climacell_temperature(api_key = Sys.getenv("CLIMACELL_API"),
                       lat = 41.878685,
                       long = -87.636011,
                       timestep = '1d',
-                      start_time = Sys.time(),
-                      end_time = Sys.time() + lubridate::days(3))
+                      start_time = lubridate::now(),
+                      end_time = lubridate::now() + lubridate::days(3))
 #> # A tibble: 4 x 5
 #>   start_time          temp_c temp_feel_c dewpoint humidity
 #>   <dttm>               <dbl>       <dbl>    <dbl>    <dbl>
-#> 1 2021-02-06 12:00:00  -8.7       -15.3    -12.0      84.4
-#> 2 2021-02-07 12:00:00 -14.6       -20.9    -19.4      77.6
-#> 3 2021-02-08 12:00:00  -6.81       -9.92    -8.67     88.2
-#> 4 2021-02-09 12:00:00  -7.48      -15.3     -9.09     88.8
+#> 1 2021-02-26 12:00:00   4.58        4.25     2.13     88.0
+#> 2 2021-02-27 12:00:00   8.79        8.79     2.33     96.2
+#> 3 2021-02-28 12:00:00   8.87        8.87     6.16     97.8
+#> 4 2021-03-01 12:00:00   0.82       -5.74    -4.97     86.2
 ```
 
 ### Wind
@@ -64,39 +86,44 @@ climacell_wind(api_key = Sys.getenv("CLIMACELL_API"),
                lat = 41.878685,
                long = -87.636011,
                timestep = '1d',
-               start_time = Sys.time(),
-               end_time = Sys.time() + lubridate::days(3))
+               start_time = lubridate::now(),
+               end_time = lubridate::now() + lubridate::days(3))
 #> # A tibble: 4 x 4
 #>   start_time          wind_speed wind_gust wind_direction
 #>   <dttm>                   <dbl>     <dbl>          <dbl>
-#> 1 2021-02-06 12:00:00       7.08     10.8            279.
-#> 2 2021-02-07 12:00:00       6.45      8.92           287.
-#> 3 2021-02-08 12:00:00       6.51      8.92           172.
-#> 4 2021-02-09 12:00:00       9.24     12.5            335.
+#> 1 2021-02-26 12:00:00       6.53      9.23           185.
+#> 2 2021-02-27 12:00:00       6.53      9.23           179.
+#> 3 2021-02-28 12:00:00       8.55     11.6            260.
+#> 4 2021-03-01 12:00:00       9.31     13.2            281.
 ```
 
-## Precipitation
+### Precipitation
 
 ``` r
 library(RClimacell)
-climacell_precip(api_key = Sys.getenv("CLIMACELL_API"),
+df_precip <- climacell_precip(api_key = Sys.getenv("CLIMACELL_API"),
                  lat = 41.878685,
                  long = -87.636011,
-                 timestep = '1d',
-                 start_time = Sys.time(),
-                 end_time = Sys.time() + lubridate::days(3))
-#> # A tibble: 5 x 13
-#>   start_time          precipitation_i… precipitation_p… precipitation_t…
-#>   <dttm>                         <dbl>            <dbl>            <dbl>
-#> 1 2021-02-06 12:00:00           1.1                  90                2
-#> 2 2021-02-07 12:00:00           0.372                20                2
-#> 3 2021-02-08 12:00:00           0.197                25                2
-#> 4 2021-02-09 12:00:00           0                     0                2
-#> 5 2021-02-10 12:00:00           0.0663                0                2
-#> # … with 9 more variables: precipitation_type_desc <chr>, visibility <dbl>,
-#> #   pressure_surface_level <dbl>, pressure_sea_level <dbl>, cloud_cover <dbl>,
-#> #   cloud_base <dbl>, cloud_ceiling <dbl>, weather_code <dbl>,
-#> #   weather_desc <chr>
+                 timestep = '1h',
+                 start_time = lubridate::now(),
+                 end_time = lubridate::now() + lubridate::days(3))
+
+dplyr::glimpse(df_precip)
+#> Rows: 73
+#> Columns: 13
+#> $ start_time                <dttm> 2021-02-26 19:33:00, 2021-02-26 20:33:00, …
+#> $ precipitation_intensity   <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0…
+#> $ precipitation_probability <dbl> 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.5, 12.…
+#> $ precipitation_type_code   <dbl> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1…
+#> $ precipitation_type_desc   <chr> "Rain", "Rain", "Rain", "Rain", "Rain", "Ra…
+#> $ visibility                <dbl> 10.00, 16.00, 16.00, 16.00, 16.00, 16.00, 1…
+#> $ pressure_surface_level    <dbl> 999.40, 998.43, 997.61, 997.11, 996.58, 995…
+#> $ pressure_sea_level        <dbl> 1020.59, 1016.96, 1016.25, 1015.72, 1015.11…
+#> $ cloud_cover               <dbl> 0.00, 2.65, 55.75, 100.00, 100.00, 100.00, …
+#> $ cloud_base                <dbl> NA, NA, 4.14, 3.58, 3.07, 2.68, 2.59, 1.88,…
+#> $ cloud_ceiling             <dbl> NA, NA, NA, NA, 2.89, 2.89, 2.46, 1.85, 2.0…
+#> $ weather_code              <dbl> 1000, 1000, 1101, 1001, 1001, 1001, 1001, 1…
+#> $ weather_desc              <chr> "Clear", "Clear", "Partly Cloudy", "Cloudy"…
 ```
 
 See the [vignette](https://nikdata.github.io/RClimacell/) for more
