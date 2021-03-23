@@ -8,3 +8,6 @@ knitr::opts_chunk$set(
   fig.width = 5
 )
 
+## ----setup, echo=FALSE--------------------------------------------------------
+library(RClimacell)
+

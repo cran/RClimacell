@@ -1,8 +1,6 @@
-#' Wind Readings from Climacell
+#' Climacell Core Layer Data
 #'
-#' \code{climacell_wind} returns a tibble that consists of wind related variables (returned values are in metric units) using the Climacell API. These variables consist of wind speed, wind gust, and wind direction.
-#'
-#' @description This function will make a call to the Climacell API and retrieve wind related variables.
+#' @description \code{climacell_core} returns a tibble that contains all of the Core Layer data from the Climacell version 4 API using the Timelines interface. The intent of this function is to retrieve all of the Core Layer data in a single API call. This is especially handy when using the free API as it limits the usage of the API based on hourly rate and daily usage.
 #'
 #' @param api_key character string representing the private API key. Provided by user or loaded automatically from environment variable (environment variable must be called "CLIMACELL_API").
 #' @param lat a numeric value (or a string that can be coerced to numeric) representing the latitude of the location.
@@ -17,21 +15,32 @@
 #' @import dplyr
 #' @import tibble
 #' @import httr
+#' @import utils
+#' @import tidyselect
 #'
 #' @importFrom stringr str_detect
 #' @importFrom magrittr `%>%`
 #' @importFrom rlang .data
+#' @importFrom tidyr fill pivot_wider
 #'
 #' @examples
 #' \dontrun{
-#' climacell_wind(
+#' climacell_core(
 #'   api_key = Sys.getenv('CLIMACELL_API'),
 #'   lat = 0,
 #'   long = 0,
-#'   timestep = 'current')
+#'   timestep = '1d',
+#'   start_time = lubridate::now(),
+#'   end_time = lubridate::now + lubridate::days(5))
 #' }
 #'
-climacell_wind <- function(api_key, lat, long, timestep, start_time=NULL, end_time=NULL) {
+
+climacell_core <- function(api_key, lat, long, timestep, start_time=NULL, end_time=NULL) {
+
+  # retrieve the appropriate dictionaries
+  moon_dict <- dict_moonphase()
+  precip_dict <- dict_preciptype()
+  weather_dict <- dict_weathercode()
 
   # check for missing key or empty environment variable
   if(missing(api_key) & Sys.getenv('CLIMACELL_API') == '') {
@@ -200,26 +209,83 @@ climacell_wind <- function(api_key, lat, long, timestep, start_time=NULL, end_ti
     stop('Difference between start time and end time cannot be less than 24 hours!')
   }
 
+  # messsage for timestep other than 1D
+  if(timestep != '1d') {
+    message("Moonphase, Sunrise Time, and Sunset Times are only available if timestep is '1d'.")
+  }
+
   # process for API retrieval
 
   latlong <- paste0(lat, ', ', long)
 
   # get results
-  result <- httr::content(
-    httr::GET(
-      url = 'https://data.climacell.co/v4/timelines',
-      httr::add_headers('apikey'= api_key),
-      httr::add_headers('content-type:' = 'application/json'),
-      query = list(location = latlong,
-                   fields = 'windSpeed',
-                   fields = 'windDirection',
-                   fields = 'windGust',
-                   timesteps=timestep,
-                   startTime = start_time,
-                   endTime = end_time
+
+  if(timestep != '1d') {
+    result <- httr::content(
+      httr::GET(
+        url = 'https://data.climacell.co/v4/timelines',
+        httr::add_headers('apikey'= api_key),
+        httr::add_headers('content-type:' = 'application/json'),
+        query = list(location = latlong,
+                     fields = 'temperature',
+                     fields = 'temperatureApparent',
+                     fields = 'dewPoint',
+                     fields = 'humidity',
+                     fields = 'precipitationIntensity',
+                     fields = 'precipitationProbability',
+                     fields = 'precipitationType',
+                     fields = 'windSpeed',
+                     fields = 'windDirection',
+                     fields = 'windGust',
+                     fields = 'visibility',
+                     fields = 'pressureSurfaceLevel',
+                     fields = 'pressureSeaLevel',
+                     fields = 'cloudCover',
+                     fields = 'cloudBase',
+                     fields = 'cloudCeiling',
+                     fields = 'solarGHI',
+                     fields = 'weatherCode',
+                     timesteps = timestep,
+                     startTime = start_time,
+                     endTime = end_time
+        )
       )
     )
-  )
+  } else {
+    result <- httr::content(
+      httr::GET(
+        url = 'https://data.climacell.co/v4/timelines',
+        httr::add_headers('apikey'= api_key),
+        httr::add_headers('content-type:' = 'application/json'),
+        query = list(location = latlong,
+                     fields = 'temperature',
+                     fields = 'temperatureApparent',
+                     fields = 'dewPoint',
+                     fields = 'humidity',
+                     fields = 'precipitationIntensity',
+                     fields = 'precipitationProbability',
+                     fields = 'precipitationType',
+                     fields = 'windSpeed',
+                     fields = 'windDirection',
+                     fields = 'windGust',
+                     fields = 'visibility',
+                     fields = 'pressureSurfaceLevel',
+                     fields = 'pressureSeaLevel',
+                     fields = 'cloudCover',
+                     fields = 'cloudBase',
+                     fields = 'cloudCeiling',
+                     fields = 'solarGHI',
+                     fields = 'weatherCode',
+                     fields = 'sunriseTime',
+                     fields = 'sunsetTime',
+                     fields = 'moonPhase',
+                     timesteps = timestep,
+                     startTime = start_time,
+                     endTime = end_time
+        )
+      )
+    )
+  }
 
   tidy_result <- tibble::enframe(unlist(result))
 
@@ -229,67 +295,204 @@ climacell_wind <- function(api_key, lat, long, timestep, start_time=NULL, end_ti
     ) %>%
     dplyr::filter(stringr::str_detect(pattern = 'intervals', string = .data$name))
 
-  # wind direction does not always appear in the results (especially when wind speed is 0)
-
-  wind_direction_results <- cln_result %>%
-    dplyr::filter(stringr::str_detect(pattern = 'startTime', string = .data$name) | stringr::str_detect(pattern = 'windDirection', string = .data$name))
-
-  df_wind_direction <- wind_direction_results %>%
-    dplyr::left_join(
-      wind_direction_results %>%
-        dplyr::filter(stringr::str_detect(pattern = 'startTime', string = .data$name)) %>%
-        dplyr::mutate(index = dplyr::row_number()),
-      by = c('name','value')
-    ) %>%
+  df_out <- cln_result %>%
     dplyr::mutate(
-      name = gsub(pattern = 'intervals.', replacement = '', x = .data$name),
-      name = gsub(pattern = 'values.', replacement = '', x = .data$name),
-      name = gsub(pattern = 'startTime', replacement = 'start_time', x = .data$name),
-      name = gsub(pattern = 'windDirection', replacement = 'wind_direction', x = .data$name)
+      start_time = ifelse(.data$name == 'intervals.startTime', .data$value, NA)
     ) %>%
-    tidyr::fill(.data$index, .direction = 'down') %>%
+    tidyr::fill(.data$start_time, .direction = 'down') %>%
+    dplyr::filter(.data$name != 'intervals.startTime') %>%
+    dplyr::mutate(
+      var_name = gsub(pattern = 'intervals.values.', replacement = '', x = .data$name),
+      var_name = dplyr::case_when(
+        .data$var_name == 'temperature' ~ 'temp_c',
+        .data$var_name == 'temperatureApparent' ~ 'temp_feel_c',
+        .data$var_name == 'precipitationIntensity' ~ 'precipitation_intensity',
+        .data$var_name == 'precipitationProbability' ~ 'precipitation_probability',
+        .data$var_name == 'precipitationType' ~ 'precipitation_type_code',
+        .data$var_name == 'dewPoint' ~ 'dewpoint',
+        .data$var_name == 'windSpeed' ~ 'wind_speed',
+        .data$var_name == 'windDirection' ~ 'wind_direction',
+        .data$var_name == 'windGust' ~ 'wind_gust',
+        .data$var_name == 'pressureSurfaceLevel' ~ 'pressure_surface_level',
+        .data$var_name == 'pressureSeaLevel' ~ 'pressure_sea_level',
+        .data$var_name == 'cloudCover' ~ 'cloud_cover',
+        .data$var_name == 'solarGHI' ~ 'solar_ghi',
+        .data$var_name == 'weatherCode' ~ 'weather_code',
+        .data$var_name == 'cloudBase' ~ 'cloud_base',
+        .data$var_name == 'cloudCeiling' ~ 'cloud_ceiling',
+        .data$var_name == 'humidity' ~ 'humidity',
+        .data$var_name == 'visibility' ~ 'visibility',
+        .data$var_name == 'sunriseTime' ~ 'sunrise_time',
+        .data$var_name == 'sunsetTime' ~ 'sunset_time',
+        .data$var_name == 'moonPhase' ~ 'moon_phase_code'
+      )
+    ) %>%
+    dplyr::filter(!is.na(.data$var_name)) %>%
+    dplyr::select(-.data$name) %>%
     tidyr::pivot_wider(
-      names_from = .data$name,
+      names_from = .data$var_name,
       values_from = .data$value
-    ) %>%
-    dplyr::select(-.data$index)
-
-  # check to make sure that columns wind_direction are present
-  winddir_chk <- assertthat::has_name(df_wind_direction, 'wind_direction')
-
-  # if any column is missing, add it to df_wind_direction
-  if(winddir_chk == FALSE) {
-    df_wind_direction <- df_wind_direction %>%
-      tibble::add_column(wind_direction = NA)
-  }
-
-  cln_out <- tibble::tibble(
-    start_time = cln_result %>%
-      dplyr::filter(stringr::str_detect(pattern = 'startTime', string = .data$name)) %>%
-      dplyr::select(.data$value) %>%
-      dplyr::pull(),
-    wind_speed = cln_result %>%
-      dplyr::filter(stringr::str_detect(pattern = 'intervals.values.windSpeed', string = .data$name)) %>%
-      dplyr::select(.data$value) %>%
-      dplyr::pull(),
-    wind_gust = cln_result %>%
-      dplyr::filter(stringr::str_detect(pattern = 'intervals.values.windGust', string = .data$name)) %>%
-      dplyr::select(.data$value) %>%
-      dplyr::pull()
-  )
-
-  cln_combo <- cln_out %>%
-    dplyr::left_join(df_wind_direction, by = c('start_time'))
-
-  # change data types
-  cln_combo <- cln_combo %>%
-    dplyr::mutate(
-      start_time = lubridate::ymd_hms(.data$start_time, tz = 'UTC'),
-      wind_speed = as.numeric(.data$wind_speed),
-      wind_gust = as.numeric(.data$wind_gust),
-      wind_direction = as.numeric(.data$wind_direction)
     )
 
-  return(cln_combo)
+  colchk_temp <- assertthat::has_name(df_out, 'temp_c')
+  colchk_feel <- assertthat::has_name(df_out, 'temp_feel_c')
+  colchk_precipint <- assertthat::has_name(df_out, 'precipitation_intensity')
+  colchk_precipprob <- assertthat::has_name(df_out, 'precipitation_probability')
+  colchk_preciptype <- assertthat::has_name(df_out, 'precipitation_type_code')
+  colchk_dew <- assertthat::has_name(df_out, 'dewpoint')
+  colchk_wind <- assertthat::has_name(df_out, 'wind_speed')
+  colchk_winddir <- assertthat::has_name(df_out, 'wind_direction')
+  colchk_windgust <- assertthat::has_name(df_out, 'wind_gust')
+  colchk_prssurf <- assertthat::has_name(df_out, 'pressure_surface_level')
+  colchk_prssea <- assertthat::has_name(df_out, 'pressure_sea_level')
+  colchk_cldcvr <- assertthat::has_name(df_out, 'cloud_cover')
+  colchk_solar <- assertthat::has_name(df_out, 'solar_ghi')
+  colchk_weacode <- assertthat::has_name(df_out, 'weather_code')
+  colchk_cldbse <- assertthat::has_name(df_out, 'cloud_base')
+  colchk_cldceil <- assertthat::has_name(df_out, 'cloud_ceiling')
+  colchk_humid <- assertthat::has_name(df_out, 'humidity')
+  colchk_vis <- assertthat::has_name(df_out, 'visibility')
+  colchk_moon <- assertthat::has_name(df_out, 'moon_phase_code')
+  colchk_sunrise <- assertthat::has_name(df_out, 'sunrise_time')
+  colchk_sunset <- assertthat::has_name(df_out, 'sunset_time')
+
+  # if column does not exist, add
+
+  if(colchk_temp == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(temp_c = NA)
+  }
+  if(colchk_feel == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(temp_feel_c = NA)
+  }
+  if(colchk_precipint == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(precipitation_intensity = NA)
+  }
+  if(colchk_precipprob == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(precipitation_probability = NA)
+  }
+  if(colchk_preciptype == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(precipitation_type_code = NA)
+  }
+  if(colchk_dew == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(dewpoint = NA)
+  }
+  if(colchk_wind == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(wind_speed = NA)
+  }
+  if(colchk_winddir == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(wind_direction = NA)
+  }
+  if(colchk_windgust == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(wind_gust = NA)
+  }
+  if(colchk_prssurf == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(pressure_surface_level = NA)
+  }
+  if(colchk_prssea == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(pressure_sea_level = NA)
+  }
+  if(colchk_cldcvr == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(cloud_cover = NA)
+  }
+  if(colchk_solar == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(solar_ghi = NA)
+  }
+  if(colchk_weacode == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(weather_code = NA)
+  }
+  if(colchk_cldbse == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(cloud_base = NA)
+  }
+  if(colchk_cldceil == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(cloud_ceiling = NA)
+  }
+  if(colchk_humid == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(humidity = NA)
+  }
+  if(colchk_vis == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(visibility = NA)
+  }
+
+  if(colchk_moon == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(moon_phase_code = NA)
+  }
+  if(colchk_sunrise == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(sunrise_time = NA)
+  }
+  if(colchk_sunset == FALSE) {
+    df_out <- df_out %>%
+      tibble::add_column(sunset_time = NA)
+  }
+
+  # encode each column correctly
+  df_out_encoded <- df_out %>%
+    dplyr::mutate(
+      start_time = lubridate::ymd_hms(.data$start_time, tz = 'UTC'),
+      sunrise_time = lubridate::ymd_hms(.data$sunrise_time, tz = 'UTC'),
+      sunset_time = lubridate::ymd_hms(.data$sunset_time, tz = 'UTC')
+    ) %>%
+    dplyr::mutate(
+      dplyr::across(where(is.character), .fns = as.numeric)
+    )
+
+  # add in the descriptions and rearrange
+  df_final <- df_out_encoded %>%
+    dplyr::left_join(precip_dict, by = 'precipitation_type_code') %>%
+    dplyr::left_join(weather_dict, by = 'weather_code') %>%
+    dplyr::select(.data$start_time,
+                  .data$temp_c,
+                  .data$temp_feel_c,
+                  .data$weather_code,
+                  .data$weather_desc,
+                  .data$dewpoint,
+                  .data$humidity,
+                  .data$wind_speed,
+                  .data$wind_direction,
+                  .data$wind_gust,
+                  .data$solar_ghi,
+                  .data$precipitation_type_code,
+                  .data$precipitation_type_desc,
+                  .data$precipitation_probability,
+                  .data$precipitation_intensity,
+                  .data$cloud_cover,
+                  .data$cloud_base,
+                  .data$cloud_ceiling,
+                  .data$visibility,
+                  .data$pressure_surface_level,
+                  .data$pressure_sea_level,
+                  .data$sunrise_time,
+                  .data$sunset_time,
+                  .data$moon_phase_code
+    )
+
+  if(timestep == '1d') {
+    df_final <- df_final %>%
+      dplyr::left_join(moon_dict, by = 'moon_phase_code')
+  } else {
+    df_final <- df_final %>%
+      dplyr::select(-.data$sunrise_time, -.data$sunset_time, -.data$moon_phase_code)
+  }
+
+  return(df_final)
 
 }
